@@ -6,14 +6,14 @@ import KafkaClient from "./messaging/kafka";
 import { MessagingClient } from "./messaging/messaging";
 
 dotenv.config();
-const KAFKA_CONNECTION_SRING = process.env.KAFKA_CONNECTION_SRING;
-const KAFKA_TOPIC = process.env.KAFKA_TOPIC;
-const KAFKA_APP_ID = process.env.KAFKA_APP_ID;
+const KAFKA_CONNECTION_SRING = process.env.KAFKA_CONNECTION_SRING || "localhost:9092";
+const KAFKA_TOPIC = process.env.KAFKA_TOPIC || "postgresql-topic";
+const KAFKA_APP_ID = process.env.KAFKA_APP_ID || "postgresql-app";
 
-const POSTGRESQL_CONNECTION_STRING = process.env.POSTGRESQL_CONNECTION_STRING;
+const POSTGRESQL_CONNECTION_STRING = process.env.POSTGRESQL_CONNECTION_STRING || "postgres://postgres:postgres@localhost:5432/cdc_test";
 export const POSTGRESQL_PUBLICATION_NAMES =
-  process.env.POSTGRESQL_PUBLICATION_NAMES;
-export const POSTGRESQL_SLOT_NAME = process.env.POSTGRESQL_SLOT_NAME;
+  process.env.POSTGRESQL_PUBLICATION_NAMES || "students";
+export const POSTGRESQL_SLOT_NAME = process.env.POSTGRESQL_SLOT_NAME || "slot_students";
 
 async function main() {
   const messagingClient: MessagingClient = new KafkaClient(
