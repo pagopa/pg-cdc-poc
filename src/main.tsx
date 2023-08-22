@@ -76,6 +76,33 @@ const executeQuery = (client: PGClient, queryString: string) => {
     TE.mapLeft((error) => error)
   );
 };
+
+const cleanupAndExit = (clients: {
+  pgClient: PGClient;
+  kafkaClient: KafkaProducer;
+}): TE.TaskEither<Error, void> => {
+  console.log("Cleaning up resources...");
+  return pipe(
+    query(clients.pgClient, QUERIES.DROP_PUBLICATION),
+    TE.chain(() =>
+      query(clients.pgClient, QUERIES.DROP_LOGICAL_REPLICATION_SLOT)
+    ),
+    TE.chain(() => disconnectPGClient(clients.pgClient)),
+    TE.chain(() =>
+      pipe(
+        clients.kafkaClient,
+        TE.fromIO,
+        TE.bindTo("client"),
+        TE.chainFirst(({ client }) => disconnect(client))
+      )
+    ),
+    TE.map(() => {
+      console.log("Disconnected from Database and Kafka.");
+      process.exit(0);
+    })
+  );
+};
+
 const main = (): void => {
   console.log("Starting...");
   pipe(
@@ -102,10 +129,10 @@ const main = (): void => {
         brokers: [CONFIG.KAFKA.CONNECTION_STRING],
         logLevel: logLevel.ERROR,
       });
-      const processChangesFun = processChanges(CONFIG.KAFKA.TOPIC, kafkaClient);
+      const processChangesFn = processChanges(CONFIG.KAFKA.TOPIC, kafkaClient);
 
       return pipe(
-        onDataEvent(client, processChangesFun),
+        onDataEvent(client, processChangesFn),
         TE.chain(() => {
           return subscribeToChanges(
             client,
@@ -113,7 +140,7 @@ const main = (): void => {
             CONFIG.POSTGRESQL.SLOT_NAME
           );
         }),
-        TE.map(() => ({ pgClient: client, kafkaClient: null }))
+        TE.map(() => ({ pgClient: client, kafkaClient: kafkaClient }))
       );
     }),
     TE.fold(
@@ -126,17 +153,7 @@ const main = (): void => {
         process.stdin.resume();
         process.on("SIGINT", async function () {
           console.log("Received SIGINT (Ctrl+C). Exiting...");
-          console.log("Disconnecting from Database and Kafka");
-          pipe(
-            query(clients.pgClient, QUERIES.DROP_PUBLICATION),
-            TE.chain(() =>
-              query(clients.pgClient, QUERIES.DROP_LOGICAL_REPLICATION_SLOT)
-            ),
-            TE.chain(() => disconnectPGClient(clients.pgClient)),
-            TE.chain(() => disconnect(clients.kafkaClient))
-          );
-          console.log("Disconnected from Database and Kafka.");
-          process.exit(0);
+          return cleanupAndExit(clients);
         });
         return TE.fromIO(() => {
           console.log("Waiting for data...");
