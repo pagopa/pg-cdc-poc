@@ -1,25 +1,33 @@
 import { Student } from "../model/student";
-import { Mapper } from "./mapper";
 
-export class CustomMapper implements Mapper {
-  data: any;
-  constructor(data: any) {
-    this.data = data;
-  }
+type Transformer = (data: any) => Student[];
 
-  transform(): any[] {
-    const students: Student[] = [];
-    for (const key in this.data) {
-      if (
-        key == "tag" &&
-        this.data[key] !== "commit" &&
-        this.data[key] !== "relation" &&
-        this.data[key] !== "begin"
-      ) {
-        const newObject = this.data["new"];
-        students.push(newObject as Student);
-      }
+const tagTransformer: Transformer = (data) => {
+  const students: Student[] = [];
+  for (const key in data) {
+    if (
+      key == "tag" &&
+      data[key] !== "commit" &&
+      data[key] !== "relation" &&
+      data[key] !== "begin"
+    ) {
+      const newObject = data["new"];
+      students.push(newObject as Student);
     }
-    return students;
   }
-}
+
+  return students;
+};
+
+// const anotherTransformer: Transformer = (data) => { ... };
+
+const transformers: Transformer[] = [
+  tagTransformer /* , anotherTransformer, ... */,
+];
+
+export const transform = (messages: any[]): Student[] => {
+  console.log("Transforming messages");
+  return ([] as Student[]).concat(
+    transformers.flatMap((transformer) => transformer(messages))
+  );
+};

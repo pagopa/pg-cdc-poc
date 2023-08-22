@@ -9,7 +9,10 @@
   },
   "dependencies": {
     "@azure/service-bus": "^7.9.0",
+    "@pagopa/fp-ts-kafkajs": "^0.3.0",
+    "@types/": "pagopa/fp-ts-kafkajs",
     "dotenv": "^16.3.1",
+    "fp-ts": "^2.16.1",
     "kafkajs": "^2.2.4",
     "pg": "^8.11.2",
     "pg-logical-replication": "^2.0.3"
