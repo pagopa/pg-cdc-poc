@@ -14,9 +14,7 @@ export const createPGClient = (
   return TE.tryCatch(
     async () => {
       const pgClient = new Client(config);
-      const logicalRepClient = new LogicalReplicationService({
-        connectionString: config.connectionString,
-      });
+      const logicalRepClient = new LogicalReplicationService(config);
       console.log("Clients created successfully");
       return { pgClient: pgClient, pgLogicalClient: logicalRepClient };
     },
