@@ -43,7 +43,6 @@ export const disconnectPGClient = (
   TE.tryCatch(
     async () => {
       await client.pgClient.end();
-      await client.pgLogicalClient.stop();
       console.log("Disconnected from PG successfully");
     },
     (error) => {
@@ -51,6 +50,20 @@ export const disconnectPGClient = (
       return new Error("Error disconnecting from PG");
     }
   );
+
+  export const disconnectPGLogicalClient = (
+    client: PGClient
+  ): TE.TaskEither<Error, void> =>
+    TE.tryCatch(
+      async () => {
+        await client.pgLogicalClient.stop();
+        console.log("Disconnected from PG successfully");
+      },
+      (error) => {
+        console.error("Error disconnecting from PG:", error);
+        return new Error("Error disconnecting from PG");
+      }
+    );
 
 export const disconnectPGClientWithoutError = (
   client: PGClient

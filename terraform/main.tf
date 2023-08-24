@@ -12,15 +12,15 @@ variable "location" {
   default     = "West Europe"
 }
 
-resource "azurerm_resource_group" "example" {
+resource "azurerm_resource_group" "pg-cdc-poc" {
   name     = var.resource_group_name
   location = var.location
 }
 
 resource "azurerm_postgresql_flexible_server" "pg-cdc-poc" {
   name                = "psqlserver-cdc-poc"
-  location            = azurerm_resource_group.example.location
-  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.pg-cdc-poc.location
+  resource_group_name = azurerm_resource_group.pg-cdc-poc.name
 
   sku_name = "GP_Standard_D2s_v3"
 
@@ -55,8 +55,8 @@ resource "azurerm_postgresql_flexible_server_database" "default" {
 
 resource "azurerm_eventhub_namespace" "eh-pg-cdc-poc" {
   name                = "eh-pg-cdc-poc"
-  location            = azurerm_resource_group.example.location
-  resource_group_name = azurerm_resource_group.example.name
+  location            = azurerm_resource_group.pg-cdc-poc.location
+  resource_group_name = azurerm_resource_group.pg-cdc-poc.name
   sku                 = "Standard"
   capacity            = 1
 }
@@ -64,9 +64,20 @@ resource "azurerm_eventhub_namespace" "eh-pg-cdc-poc" {
 resource "azurerm_eventhub" "eventhub-pg-cdc-poc" {
   name                = "eventhub-pg-cdc-poc"
   namespace_name      = azurerm_eventhub_namespace.eh-pg-cdc-poc.name
-  resource_group_name = azurerm_resource_group.example.name
+  resource_group_name = azurerm_resource_group.pg-cdc-poc.name
   partition_count     = 2
   message_retention   = 1
+}
+
+resource "azurerm_eventhub_authorization_rule" "eventhub-ar-pg-cdc-poc" {
+  name                = "eventhub-ar-pg-cdc-poc"
+  namespace_name      = azurerm_eventhub_namespace.eh-pg-cdc-poc.name
+  eventhub_name       = azurerm_eventhub.eventhub-pg-cdc-poc.name
+  resource_group_name = azurerm_resource_group.pg-cdc-poc.name
+
+  listen = true
+  send   = true
+  manage = true
 }
 
 resource "null_resource" "alter_user" {
@@ -75,3 +86,17 @@ resource "null_resource" "alter_user" {
     command = "./alterUser.sh ${azurerm_postgresql_flexible_server.pg-cdc-poc.fqdn} psqladminun ${azurerm_postgresql_flexible_server_database.default.name} H@Sh1CoR3!"
   }
 }
+
+# data "azurerm_eventhub_namespace_authorization_rule" "eventhub_ar_data" {
+#   name                = azurerm_eventhub_authorization_rule.eventhub-ar-pg-cdc-poc.name
+#   namespace_name      = azurerm_eventhub_namespace.eh-pg-cdc-poc.name
+#   resource_group_name = azurerm_resource_group.pg-cdc-poc.name
+#   depends_on          = [azurerm_eventhub_authorization_rule.eventhub-ar-pg-cdc-poc]
+
+# }
+
+# output "eventhub_primary_connection_string" {
+#   description = "Primary connection string for the EventHub"
+#   value       = data.azurerm_eventhub_namespace_authorization_rule.eventhub_ar_data.primary_connection_string
+#   sensitive   = true
+# }

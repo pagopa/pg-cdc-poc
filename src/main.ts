@@ -21,6 +21,7 @@ import {
   connectPGClient,
   createPGClient,
   disconnectPGClient,
+  disconnectPGLogicalClient,
 } from "./database/postgresql/PostgresOperation";
 import { query } from "./database/postgresql/PostgresPG";
 import { transform } from "./mapping/customMapper";
@@ -119,7 +120,8 @@ const cleanupAndExit = (clients: {
 }): TE.TaskEither<Error, void> => {
   console.log("Cleaning up resources...");
   return pipe(
-    query(clients.pgClient, QUERIES.DROP_PUBLICATION),
+    disconnectPGLogicalClient(clients.pgClient),
+    TE.chain(() => query(clients.pgClient, QUERIES.DROP_PUBLICATION)),
     TE.chain(() =>
       query(clients.pgClient, QUERIES.DROP_LOGICAL_REPLICATION_SLOT)
     ),
@@ -163,17 +165,18 @@ const main = (): void => {
       )
     ) as TE.TaskEither<never, AzureEventhubSas>,
     TE.chain((sas: AzureEventhubSas) => {
+      const pgConfig = {
+        host: CONFIG.POSTGRESQL.HOST,
+        port: CONFIG.POSTGRESQL.PORT,
+        database: CONFIG.POSTGRESQL.DATABASE,
+        user: CONFIG.POSTGRESQL.USER,
+        password: CONFIG.POSTGRESQL.PASSWORD,
+        ssl: {
+          rejectUnauthorized: false,
+        },
+      };
       return pipe(
-        createPGClient({
-          host: CONFIG.POSTGRESQL.HOST,
-          port: CONFIG.POSTGRESQL.PORT,
-          database: CONFIG.POSTGRESQL.DATABASE,
-          user: CONFIG.POSTGRESQL.USER,
-          password: CONFIG.POSTGRESQL.PASSWORD,
-          ssl: {
-            rejectUnauthorized: false,
-          },
-        }),
+        createPGClient(pgConfig),
         TE.chain((client) => {
           const kafkaClient = fromSas(sas, undefined);
           clientsToClean = {
@@ -233,7 +236,7 @@ const main = (): void => {
         )
       );
     })
-  )().then((outcome) => console.log(outcome));
+  )().then((_) => console.log("Application started"));
 };
 
 main();

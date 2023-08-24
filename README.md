@@ -22,7 +22,8 @@ The terraform code creates a resource group on azure called `pg-cdc-poc`.
 It contains:
 - A PostgreSQL server named `psqlserver-cdc-poc` already configured for logical replication, a key component essential for Change Data Capture (CDC). This server will house a database titled `pg-cdc-poc-db`.
 - An Azure EventHub namespace named `eh-pg-cdc-poc`.  Inside this namespace there is a specific EventHub named `eventhub-pg-cdc-poc`. This EventHub will be the recipient of the data change events coming from PostgreSQL.
-
+At the end, terraform prints as output the `eventhub_primary_connection_string`. Copy and paste it as value of the `EVENT_HUB_CONNECTION_STRING` env variable in the `.env` file.
+ 
 ## Project startup
 From the root of the project, install the required dependencies:
 
