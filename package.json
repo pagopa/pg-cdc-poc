@@ -3,14 +3,24 @@
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
+  "scripts": {
+    "format": "prettier --write .",
+    "lint": "eslint \"src/**\"",
+    "lint:fix": "eslint --fix \"src/**\""
+  },
   "devDependencies": {
+    "@pagopa/eslint-config": "^3.0.0",
+    "@rushstack/eslint-patch": "^1.3.3",
+    "@types/node": "^20.5.6",
     "@types/pg": "^8.10.2",
+    "@typescript-eslint/eslint-plugin": "^6.4.1",
+    "eslint": "^8.47.0",
+    "prettier": "^3.0.2",
     "typescript": "^5.1.6"
   },
   "dependencies": {
     "@azure/service-bus": "^7.9.0",
     "@pagopa/fp-ts-kafkajs": "^0.3.0",
-    "@types/": "pagopa/fp-ts-kafkajs",
     "dotenv": "^16.3.1",
     "fp-ts": "^2.16.1",
     "kafkajs": "^2.2.4",
