@@ -86,17 +86,3 @@ resource "null_resource" "alter_user" {
     command = "./alterUser.sh ${azurerm_postgresql_flexible_server.pg-cdc-poc.fqdn} psqladminun ${azurerm_postgresql_flexible_server_database.default.name} H@Sh1CoR3!"
   }
 }
-
-# data "azurerm_eventhub_namespace_authorization_rule" "eventhub_ar_data" {
-#   name                = azurerm_eventhub_authorization_rule.eventhub-ar-pg-cdc-poc.name
-#   namespace_name      = azurerm_eventhub_namespace.eh-pg-cdc-poc.name
-#   resource_group_name = azurerm_resource_group.pg-cdc-poc.name
-#   depends_on          = [azurerm_eventhub_authorization_rule.eventhub-ar-pg-cdc-poc]
-
-# }
-
-# output "eventhub_primary_connection_string" {
-#   description = "Primary connection string for the EventHub"
-#   value       = data.azurerm_eventhub_namespace_authorization_rule.eventhub_ar_data.primary_connection_string
-#   sensitive   = true
-# }
