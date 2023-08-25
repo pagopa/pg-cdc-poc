@@ -31,7 +31,18 @@ From the root of the project, install the required dependencies:
 yarn install
 ```
 
-Then, navigate to the src directory and run the TypeScript code:
+Then, configure the  `.env` file with the following variables:
+- KAFKA_TOPIC=
+- KAFKA_APP_ID=
+- POSTGRESQL_PUBLICATION_NAMES=
+- POSTGRESQL_SLOT_NAME=
+- POSTGRESQL_HOST=
+- POSTGRESQL_PORT=
+- POSTGRESQL_USER=
+- POSTGRESQL_PASSWORD=
+- EVENT_HUB_CONNECTION_STRING=
+
+Navigate to the src directory and run the TypeScript code:
 
 ```bash
 ts-node main.tsx
