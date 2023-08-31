@@ -1,33 +1,32 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import * as A from "fp-ts/lib/Array";
+import * as O from "fp-ts/lib/Option";
+
+import { pipe } from "fp-ts/lib/function";
 import { Student } from "../model/student";
 
 type Transformer = (data: any) => Student[];
 
-const tagTransformer: Transformer = (data) => {
-  const students: Student[] = [];
-  for (const key in data) {
-    if (
-      key == "tag" &&
-      data[key] !== "commit" &&
-      data[key] !== "relation" &&
-      data[key] !== "begin"
-    ) {
-      const newObject = data["new"];
-      students.push(newObject as Student);
-    }
-  }
+const isValidTag = (tag: string) =>
+  tag !== "commit" && tag !== "relation" && tag !== "begin";
 
-  return students;
-};
+const tagTransformer: Transformer = (data) =>
+  pipe(
+    O.fromNullable(data.tag),
+    O.filter(isValidTag),
+    O.chain(() => O.fromNullable(data.new)),
+    O.fold(
+      () => [],
+      (newObject) => A.of(newObject as Student)
+    )
+  );
 
 // const anotherTransformer: Transformer = (data) => { ... };
-
 const transformers: Transformer[] = [
   tagTransformer /* , anotherTransformer, ... */,
 ];
 
-export const transform = (messages: any[]): Student[] => {
-  console.log("Transforming messages");
-  return ([] as Student[]).concat(
+export const transform = (messages: any[]): Student[] =>
+  ([] as Student[]).concat(
     transformers.flatMap((transformer) => transformer(messages))
   );
-};

@@ -9,38 +9,30 @@ export type PgEvents = "start" | "data" | "error" | "acknowledge" | "heartbeat";
 
 export const onDataEvent = (
   client: PGClient,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   listener: (...args: any[]) => TE.TaskEither<Error, void>
-): TE.TaskEither<Error, void> => {
-  return pipe(
+): TE.TaskEither<Error, void> =>
+  pipe(
     TE.rightIO(() => {
-      console.log("Attempting to capture changes on data...");
       client.pgLogicalClient.on("data", (lsn: string, log: Wal2Json.Output) => {
-        console.log("Data captured");
-        listener(log)();
+        void listener(log)();
       });
     }),
-    TE.map(() => console.log("Data event subscribed successfully.")),
-    TE.mapLeft((error) => {
-      console.error("Error during data event subscription:", error);
-      return new Error("Error during data event subscription");
-    })
+    TE.mapLeft(
+      (error) => new Error(`Error during data event subscription - ${error}`)
+    )
   );
-};
 
 export const subscribeToChanges = (
   client: PGClient,
   plugin: AbstractPlugin,
   slotName: string
-): TE.TaskEither<Error, void> => {
-  return pipe(
+): TE.TaskEither<Error, void> =>
+  pipe(
     TE.tryCatch(async () => {
-      console.log(`Attempting to subscribe to publication: ${slotName}...`);
-      client.pgLogicalClient.subscribe(plugin, slotName);
+      void client.pgLogicalClient.subscribe(plugin, slotName);
     }, E.toError),
-    TE.map(() => console.log(`Successfully subscribed to slot: ${slotName}`)),
-    TE.mapLeft((error) => {
-      console.error(`Error subscribing to slot ${slotName}:`, error);
-      return error;
-    })
+    TE.mapLeft(
+      (error) => new Error(`Error subscribing to slot ${slotName} - ${error}`)
+    )
   );
-};

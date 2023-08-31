@@ -10,60 +10,36 @@ export type PGClient = {
 
 export const createPGClient = (
   config: ClientConfig
-): TE.TaskEither<Error, PGClient> => {
-  return TE.tryCatch(
-    async () => {
-      const pgClient = new Client(config);
-      const logicalRepClient = new LogicalReplicationService(config);
-      console.log("Clients created successfully");
-      return { pgClient: pgClient, pgLogicalClient: logicalRepClient };
-    },
-    (error) => {
-      console.error("Error creating PG clients:", error);
-      return new Error("Error creating PG clients");
-    }
+): TE.TaskEither<Error, PGClient> =>
+  TE.tryCatch(
+    async () => ({
+      pgClient: new Client(config),
+      pgLogicalClient: new LogicalReplicationService(config),
+    }),
+    (error) => new Error(`Error creating PG clients - ${error}`)
   );
-};
 
 export const connectPGClient = (client: PGClient): TE.TaskEither<Error, void> =>
   TE.tryCatch(
-    async () => {
-      await client.pgClient.connect();
-      console.log("PG clients connected successfully");
-    },
-    (error) => {
-      console.error("Error connecting to PG:", error);
-      return new Error("Error connecting to PG");
-    }
+    async () => await client.pgClient.connect(),
+    (error) => new Error(`Error connecting to PG - ${error}`)
   );
 
 export const disconnectPGClient = (
   client: PGClient
 ): TE.TaskEither<Error, void> =>
   TE.tryCatch(
-    async () => {
-      await client.pgClient.end();
-      console.log("Disconnected from PG successfully");
-    },
-    (error) => {
-      console.error("Error disconnecting from PG:", error);
-      return new Error("Error disconnecting from PG");
-    }
+    async () => await client.pgClient.end(),
+    (error) => new Error(`Error disconnecting from PG - ${error}`)
   );
 
-  export const disconnectPGLogicalClient = (
-    client: PGClient
-  ): TE.TaskEither<Error, void> =>
-    TE.tryCatch(
-      async () => {
-        await client.pgLogicalClient.stop();
-        console.log("Disconnected from PG successfully");
-      },
-      (error) => {
-        console.error("Error disconnecting from PG:", error);
-        return new Error("Error disconnecting from PG");
-      }
-    );
+export const disconnectPGLogicalClient = (
+  client: PGClient
+): TE.TaskEither<Error, void> =>
+  TE.tryCatch(
+    async () => void (await client.pgLogicalClient.stop()),
+    (error) => new Error(`Error disconnecting from PG - ${error}`)
+  );
 
 export const disconnectPGClientWithoutError = (
   client: PGClient
@@ -71,8 +47,5 @@ export const disconnectPGClientWithoutError = (
   pipe(
     client,
     disconnectPGClient,
-    TE.orElseW((_) => {
-      console.log("Disconnecting from PG with suppressed error");
-      return TE.right(undefined);
-    })
+    TE.orElseW((_) => TE.right(undefined))
   );
