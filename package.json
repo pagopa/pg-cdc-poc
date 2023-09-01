@@ -23,7 +23,9 @@
     "@pagopa/fp-ts-kafkajs": "^0.3.0",
     "dotenv": "^16.3.1",
     "fp-ts": "^2.16.1",
+    "io-ts-types": "^0.5.19",
     "kafkajs": "^2.2.4",
+    "logging-ts": "^0.3.4",
     "pg": "^8.11.2",
     "pg-logical-replication": "^2.0.3"
   }

@@ -5,16 +5,10 @@ import { PGClient } from "./PostgresOperation";
 export const query = (
   client: PGClient,
   queryString: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   values?: any[]
 ): TE.TaskEither<Error, QueryResult> =>
   TE.tryCatch(
-    async () => {
-      const result = await client.pgClient.query(queryString, values);
-      console.log(`Executed query: ${queryString}`);
-      return result;
-    },
-    (error) => {
-      console.error(`Error executing query: ${queryString} - `, error);
-      return new Error("Error executing query");
-    }
+    async () => await client.pgClient.query(queryString, values),
+    (error) => new Error(`Error executing query - ${error}`)
   );
