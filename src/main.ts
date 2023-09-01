@@ -1,6 +1,5 @@
 import { disconnect } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaOperation";
 import {
-  AzureEventhubSasFromString,
   KafkaProducerCompact,
   fromSas,
   sendMessages,
@@ -12,7 +11,7 @@ import * as IO from "fp-ts/lib/IO";
 import * as TE from "fp-ts/lib/TaskEither";
 import { pipe } from "fp-ts/lib/function";
 import { withLogger } from "logging-ts/lib/IO";
-import { CONFIG, QUERIES, pgConfig, plugin } from "./config";
+import { CONFIG, QUERIES, plugin } from "./config";
 import {
   onDataEvent,
   subscribeToChanges,
@@ -25,24 +24,30 @@ import {
   disconnectPGLogicalClient,
 } from "./database/postgresql/PostgresOperation";
 import { query } from "./database/postgresql/PostgresPg";
+import { Config } from "./ioConfig";
 import { transform } from "./mapping/customMapper";
 import { Student } from "./model/student";
 
 dotenv.config();
 const log = withLogger(IO.io)(C.log);
 
-const getSas = (): TE.TaskEither<Error, KafkaProducerCompact<Student>> =>
-  TE.fromEither(
-    pipe(
-      AzureEventhubSasFromString.decode(CONFIG.EVENTHUB.CONNECTION_STRING),
-      E.fold(
-        (errors) =>
-          E.left(new Error(`Error during decoding Event Hub SAS - ${errors}`)),
-        (sas) => E.right(fromSas(sas))
-      )
+const getConfig = (): E.Either<Error, Config> =>
+  pipe(
+    Config.decode(CONFIG),
+    E.map((config) => ({
+      dbConfig: {
+        host: config.POSTGRESQL.HOST,
+        port: config.POSTGRESQL.PORT,
+        database: config.POSTGRESQL.DATABASE,
+        user: config.POSTGRESQL.USER,
+        password: config.POSTGRESQL.PASSWORD,
+      },
+      messagingConfig: config.EVENTHUB.CONNECTION_STRING,
+    })),
+    E.mapLeft(
+      (errors) => new Error(`Error during decoding Event Hub SAS - ${errors}`)
     )
   );
-
 const executeQuery = (
   client: PGClient,
   queryToExecute: string
@@ -62,7 +67,7 @@ const setupDatabase = (pgClient: PGClient): TE.TaskEither<Error, PGClient> =>
     )
   );
 
-const processChanges =
+const processDBChanges =
   (client: KafkaProducerCompact<Student>) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (messages: any[]): TE.TaskEither<Error, void> =>
@@ -85,22 +90,24 @@ const subscribeToDBChanges = (
   messagingClient: KafkaProducerCompact<Student>
 ): TE.TaskEither<Error, void> =>
   pipe(
-    onDataEvent(dbClient, processChanges(messagingClient)),
+    onDataEvent(dbClient, processDBChanges(messagingClient)),
     TE.chain(() =>
       subscribeToChanges(dbClient, plugin, CONFIG.POSTGRESQL.SLOT_NAME)
     )
   );
 
-const handleSigInt = (clients: {
-  pgClient: PGClient;
-  kafkaClient: KafkaProducerCompact<Student>;
-}) =>
-  TE.rightIO(
-    IO.of(
-      process.on("SIGINT", () => {
-        void cleanupAndExit(clients)();
-      })
-    )
+const waitForExit = (
+  dbClient: PGClient,
+  messagingClient: KafkaProducerCompact<Student>
+): TE.TaskEither<Error, void> =>
+  pipe(
+    process.stdin.resume(),
+    void process.on("SIGINT", () => {
+      void cleanupAndExit({
+        pgClient: dbClient,
+        kafkaClient: messagingClient,
+      })();
+    })
   );
 
 const cleanupAndExit = (clients: {
@@ -134,40 +141,34 @@ const cleanupAndExit = (clients: {
     })
   );
 
-const waitForExit = (
-  dbClient: PGClient,
-  messagingClient: KafkaProducerCompact<Student>
-): TE.TaskEither<Error, void | object> =>
+const exitFromProcess = (): TE.TaskEither<Error, void | object> =>
   pipe(
-    TE.Do,
-    TE.chainFirst(() => TE.rightIO(IO.of(process.stdin.resume()))),
-    TE.chainFirst(
-      () =>
-        void handleSigInt({
-          pgClient: dbClient,
-          kafkaClient: messagingClient,
-        })
-    )
+    log(() => "Application failed"),
+    process.exit(0)
   );
 
 const main = () =>
   pipe(
-    TE.Do,
-    TE.bind("dbClient", () => createPGClient(pgConfig)),
-    TE.bind("messagingClient", () => getSas()),
-    TE.chainFirst(({ dbClient }) => connectPGClient(dbClient)),
-    TE.chainFirst(({ dbClient }) => setupDatabase(dbClient)),
-    TE.chainFirst(({ messagingClient, dbClient }) =>
-      subscribeToDBChanges(dbClient, messagingClient)
-    ),
-    TE.chain(({ messagingClient, dbClient }) =>
-      waitForExit(dbClient, messagingClient)
-    ),
-    TE.orElse(
+    getConfig(),
+    TE.fromEither,
+    TE.chain((config) =>
       pipe(
-        log(() => "Application failed"),
-        process.exit(0)
+        TE.Do,
+        TE.bind("dbClient", () => createPGClient(config.dbConfig)),
+        TE.chainFirst(({ dbClient }) => connectPGClient(dbClient)),
+        TE.chainFirst(({ dbClient }) => setupDatabase(dbClient)),
+        TE.bind("messagingClient", () =>
+          TE.fromEither(E.right(fromSas(config.messagingConfig)))
+        ),
+        TE.chainFirst(({ messagingClient, dbClient }) =>
+          subscribeToDBChanges(dbClient, messagingClient)
+        ),
+        TE.chain(({ messagingClient, dbClient }) =>
+          waitForExit(dbClient, messagingClient)
+        )
       )
-    )
+    ),
+    TE.orElse(exitFromProcess)
   );
+
 main();

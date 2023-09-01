@@ -31,17 +31,6 @@ export const QUERIES = {
   DROP_LOGICAL_REPLICATION_SLOT: `SELECT pg_drop_replication_slot('${CONFIG.POSTGRESQL.SLOT_NAME}');`,
 };
 
-export const pgConfig = {
-  host: CONFIG.POSTGRESQL.HOST,
-  port: CONFIG.POSTGRESQL.PORT,
-  database: CONFIG.POSTGRESQL.DATABASE,
-  user: CONFIG.POSTGRESQL.USER,
-  password: CONFIG.POSTGRESQL.PASSWORD,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-};
-
 export const plugin = new PgoutputPlugin({
   protoVersion: 1,
   publicationNames: [CONFIG.POSTGRESQL.PUBLICATION_NAMES],
