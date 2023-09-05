@@ -1,10 +1,6 @@
-import {
-  AzureEventhubSas,
-  AzureEventhubSasFromString,
-} from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaProducerCompact";
+import { AzureEventhubSasFromString } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaProducerCompact";
 import * as t from "io-ts";
 import * as ts from "io-ts-types";
-import { ClientConfig } from "pg";
 
 const PostgreSQLConfig = t.type({
   HOST: ts.NonEmptyString,
@@ -27,7 +23,7 @@ export const Config = t.type({
 
 export type IConfig = t.TypeOf<typeof Config>;
 
-export type Config = {
-  dbConfig: ClientConfig;
-  messagingConfig: AzureEventhubSas;
-};
+// export type Config = {
+//   dbConfig: ClientConfig;
+//   messagingConfig: AzureEventhubSas;
+// };
