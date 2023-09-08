@@ -1,4 +1,7 @@
+import dotenv from "dotenv";
 import { PgoutputPlugin } from "pg-logical-replication";
+
+dotenv.config();
 
 export const PGCONFIG = {
   HOST: process.env.POSTGRESQL_HOST || "localhost",

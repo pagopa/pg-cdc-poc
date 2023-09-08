@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { disconnect } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaOperation";
 import {
   AzureEventhubSasFromString,
@@ -5,16 +6,14 @@ import {
   fromSas,
   sendMessages,
 } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaProducerCompact";
+import { defaultLog, useWinston, withConsole } from "@pagopa/winston-ts";
 import dotenv from "dotenv";
 import * as E from "fp-ts/Either";
-import * as C from "fp-ts/lib/Console";
-import * as IO from "fp-ts/lib/IO";
 import * as TE from "fp-ts/lib/TaskEither";
 import { pipe } from "fp-ts/lib/function";
-import { withLogger } from "logging-ts/lib/IO";
 import { ClientConfig, QueryResult } from "pg";
 import { EHCONFIG, PGCONFIG, plugin } from "./config/config";
-import { Config } from "./config/ioConfig";
+import { PostgreSQLConfig } from "./config/ioConfig";
 import {
   onDataEvent,
   subscribeToChanges,
@@ -32,29 +31,44 @@ import { Student } from "./model/student";
 import { QUERIES } from "./utilities/query";
 
 dotenv.config();
-const log = withLogger(IO.io)(C.log);
+useWinston(withConsole());
 
 const getPGConfig = (): E.Either<Error, ClientConfig> =>
   pipe(
-    Config.decode(PGCONFIG),
-    E.map((config) => ({
-      host: config.POSTGRESQL.HOST,
-      port: config.POSTGRESQL.PORT,
-      database: config.POSTGRESQL.DATABASE,
-      user: config.POSTGRESQL.USER,
-      password: config.POSTGRESQL.PASSWORD,
-    })),
-    E.mapLeft(
-      (errors) => new Error(`Error during decoding PG Config - ${errors}`)
+    PostgreSQLConfig.decode(PGCONFIG),
+    E.mapLeft((errors) => console.log(errors)),
+    E.map((config) => {
+      console.log(config);
+      return {
+        host: config.HOST,
+        port: config.PORT,
+        database: config.DATABASE,
+        user: config.USER,
+        password: config.PASSWORD,
+      };
+    }),
+    E.mapLeft((errors) =>
+      pipe(
+        defaultLog.taskEither.error(
+          `Error during decoding PG Config - ${errors}`
+        ),
+        () => new Error(`Error during decoding PG Config`)
+      )
     )
   );
 
-const getEHConfig = (): E.Either<Error, KafkaProducerCompact<Student>> =>
+const getEventHubProducer = (): E.Either<
+  Error,
+  KafkaProducerCompact<Student>
+> =>
   pipe(
     AzureEventhubSasFromString.decode(EHCONFIG.CONNECTION_STRING),
     E.map((sas) => fromSas(sas)),
-    E.mapLeft(
-      (errors) => new Error(`Error during decoding Event Hub SAS - ${errors}`)
+    E.mapLeft((errors) =>
+      pipe(
+        defaultLog.taskEither.error(`Error decoding Event Hub SAS - ${errors}`),
+        () => new Error(`Error decoding Event Hub SAS`)
+      )
     )
   );
 
@@ -69,19 +83,20 @@ const setupDatabase = (pgClient: PGClient): TE.TaskEither<Error, QueryResult> =>
 
 const processDBChanges =
   (client: KafkaProducerCompact<Student>) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (messages: Student[]): TE.TaskEither<Error, void> =>
     pipe(
       transform(messages),
       sendMessages(client),
       TE.map(() => void 0),
-      TE.mapLeft(
-        (errors) =>
-          new Error(
+      TE.mapLeft((errors) =>
+        pipe(
+          defaultLog.taskEither.error(
             `Error during the message sending - ${errors
               .map((error) => error.message)
               .join(", ")}`
-          )
+          ),
+          () => new Error(`Error during the message sending`)
+        )
       )
     );
 
@@ -129,42 +144,54 @@ const cleanupAndExit = (clients: {
     ),
     TE.map(() => {
       pipe(
-        log(() => "Disconnected from Database and Message Bus."),
+        defaultLog.taskEither.info(
+          "Disconnected from Database and Message Bus"
+        ),
         process.exit(0)
       );
     }),
     TE.mapLeft((error) => {
-      log(() => `Error during the exit - ${error}`);
+      defaultLog.taskEither.error(`Error during the exit - ${error}`);
       process.exit(1);
     })
   );
 
 const exitFromProcess = (): TE.TaskEither<Error, void | object> =>
-  pipe(
-    log(() => "Application failed"),
-    process.exit(1)
-  );
+  pipe(defaultLog.taskEither.error("Application failed"), process.exit(1));
 
 const main = () =>
   pipe(
-    getPGConfig(),
-    TE.fromEither,
-    TE.chain((config) =>
+    TE.Do,
+    defaultLog.taskEither.info(
+      "Trying to connect to the event hub instance..."
+    ),
+    TE.bind("messagingClient", () => TE.fromEither(getEventHubProducer())),
+    defaultLog.taskEither.info("Connected to the event hub instance"),
+    defaultLog.taskEither.info("Creating PostgreSQl client..."),
+    TE.bind("dbClient", () =>
       pipe(
-        TE.Do,
-        TE.bind("dbClient", () => createPGClient(config)),
-        TE.chainFirst(({ dbClient }) => connectPGClient(dbClient)),
-        TE.chainFirst(({ dbClient }) => setupDatabase(dbClient)),
-        TE.bind("messagingClient", () => TE.fromEither(getEHConfig())),
-        TE.chainFirst(({ messagingClient, dbClient }) =>
-          subscribeToDBChanges(dbClient, messagingClient)
-        ),
-        TE.chain(({ messagingClient, dbClient }) =>
-          waitForExit(dbClient, messagingClient)
-        )
+        getPGConfig(),
+        TE.fromEither,
+        TE.chain((config) => createPGClient(config))
       )
     ),
-    TE.orElse(exitFromProcess)
-  );
+    defaultLog.taskEither.info("Client created"),
+    defaultLog.taskEither.info("Connecting to PostgreSQL..."),
+    TE.chainFirst(({ dbClient }) => connectPGClient(dbClient)),
+    defaultLog.taskEither.info("Connected to PostgreSQL"),
+    defaultLog.taskEither.info("Initializing database..."),
+    TE.chainFirst(({ dbClient }) => setupDatabase(dbClient)),
+    defaultLog.taskEither.info("Database initialized"),
+    defaultLog.taskEither.info("Subscribing to DB Changes..."),
+    TE.chainFirst(({ messagingClient, dbClient }) =>
+      subscribeToDBChanges(dbClient, messagingClient)
+    ),
+    defaultLog.taskEither.info("Subscribed to DB Changes"),
+    defaultLog.taskEither.info(`Press CTRL+C to exit...Waiting...`),
+    TE.chain(({ messagingClient, dbClient }) =>
+      waitForExit(dbClient, messagingClient)
+    )
+  )();
+TE.orElse(exitFromProcess);
 
-main();
+main().catch(console.error);

@@ -1,7 +1,10 @@
-import { pipe } from "fp-ts/lib/function";
+/* eslint-disable no-console */
+import { defaultLog, useWinston, withConsole } from "@pagopa/winston-ts";
 import * as TE from "fp-ts/TaskEither";
+import { pipe } from "fp-ts/lib/function";
 import { Client, ClientConfig } from "pg";
 import { LogicalReplicationService } from "pg-logical-replication";
+useWinston(withConsole());
 
 export type PGClient = {
   pgClient: Client;
@@ -16,13 +19,21 @@ export const createPGClient = (
       pgClient: new Client(config),
       pgLogicalClient: new LogicalReplicationService(config),
     }),
-    (error) => new Error(`Error creating PG clients - ${error}`)
+    (error) =>
+      pipe(
+        defaultLog.taskEither.error(`Error creating PG clients - ${error}`),
+        () => new Error(`Error creating PG clients - ${error}`)
+      )
   );
 
 export const connectPGClient = (client: PGClient): TE.TaskEither<Error, void> =>
   TE.tryCatch(
     async () => await client.pgClient.connect(),
-    (error) => new Error(`Error connecting to PG - ${error}`)
+    (error) =>
+      pipe(
+        defaultLog.taskEither.error(`Error connecting to PG - ${error}`),
+        () => new Error(`Error connecting to PG - ${error}`)
+      )
   );
 
 export const disconnectPGClient = (
