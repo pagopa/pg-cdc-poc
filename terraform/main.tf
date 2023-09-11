@@ -30,6 +30,7 @@ resource "azurerm_postgresql_flexible_server" "pg-cdc-poc" {
   administrator_login          = "psqladminun"
   administrator_password       = "H@Sh1CoR3!"
 
+
   version = "13"
 }
 
@@ -37,6 +38,12 @@ resource "azurerm_postgresql_flexible_server_configuration" "replication" {
   server_id = azurerm_postgresql_flexible_server.pg-cdc-poc.id
   name      = "wal_level"
   value     = "logical"
+}
+
+resource "azurerm_postgresql_flexible_server_configuration" "disable_tls" {
+  name      = "require_secure_transport"
+  server_id = azurerm_postgresql_flexible_server.pg-cdc-poc.id
+  value     = "off"
 }
 
 resource "azurerm_postgresql_flexible_server_firewall_rule" "all" {

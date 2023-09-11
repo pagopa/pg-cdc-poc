@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { disconnect } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaOperation";
 import {
   AzureEventhubSasFromString,
@@ -36,17 +35,13 @@ useWinston(withConsole());
 const getPGConfig = (): E.Either<Error, ClientConfig> =>
   pipe(
     PostgreSQLConfig.decode(PGCONFIG),
-    E.mapLeft((errors) => console.log(errors)),
-    E.map((config) => {
-      console.log(config);
-      return {
-        host: config.HOST,
-        port: config.PORT,
-        database: config.DATABASE,
-        user: config.USER,
-        password: config.PASSWORD,
-      };
-    }),
+    E.map((config) => ({
+      host: config.HOST,
+      port: config.PORT,
+      database: config.DATABASE,
+      user: config.USER,
+      password: config.PASSWORD,
+    })),
     E.mapLeft((errors) =>
       pipe(
         defaultLog.taskEither.error(
@@ -194,4 +189,4 @@ const main = () =>
   )();
 TE.orElse(exitFromProcess);
 
-main().catch(console.error);
+main().catch(defaultLog.taskEither.error(`Application Error`));
