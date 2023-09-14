@@ -28,7 +28,7 @@ resource "azurerm_postgresql_flexible_server" "pg-cdc-poc" {
   backup_retention_days        = 7
   geo_redundant_backup_enabled = false
   administrator_login          = "psqladminun"
-  administrator_password       = "H@Sh1CoR3!"
+  // administrator_password       = "<YOUR_PASS>" -> UPDATE WITH A VALID PASSWORD
 
 
   version = "13"
