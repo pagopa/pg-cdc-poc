@@ -17,7 +17,11 @@ const tagTransformer: Transformer = (data) =>
     O.chain(() => O.fromNullable(data.new)),
     O.fold(
       () => [],
-      (newObject) => A.of(newObject as Student)
+      (newObject) => {
+        // eslint-disable-next-line no-console
+        console.log("newObject", newObject);
+        return A.of(newObject as Student);
+      }
     )
   );
 
