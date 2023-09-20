@@ -3,3 +3,5 @@
 *.log
 *.lock
 .env
+.yarn/cache
+.yarn/install-state.gz
