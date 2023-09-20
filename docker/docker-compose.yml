@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 services:
   zookeeper:
@@ -17,12 +17,12 @@ services:
   postgres:
     image: postgres
     ports:
-     - 5432:5432
+      - 5432:5432
     environment:
-     - POSTGRES_USER=postgres
-     - POSTGRES_PASSWORD=postgres
-     - POSTGRES_DB=cdc_test
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=cdc_test
     volumes:
-        - ./postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     restart: always

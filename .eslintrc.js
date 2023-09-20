@@ -8,14 +8,14 @@ module.exports = {
   rules: {
     "max-classes-per-file": "off",
   },
-  parser: '@typescript-eslint/parser',
+  parser: "@typescript-eslint/parser",
   overrides: [
     {
-      files: ['*.ts', '*.tsx'],
+      files: ["*.ts", "*.tsx"],
       extends: ["@pagopa/eslint-config/recommended"],
       parserOptions: {
-        project: ['./tsconfig.json'],
+        project: ["./tsconfig.json"],
       },
     },
-  ]
+  ],
 };
