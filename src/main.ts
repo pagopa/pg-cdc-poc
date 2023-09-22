@@ -1,7 +1,6 @@
 import { disconnect } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaOperation";
 import {
   AzureEventhubSasFromString,
-  KafkaProducerCompact,
   fromSas,
   sendMessages,
 } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaProducerCompact";
@@ -10,8 +9,6 @@ import * as E from "fp-ts/Either";
 import * as TE from "fp-ts/TaskEither";
 import * as RTE from "fp-ts/lib/ReaderTaskEither";
 import { constVoid, pipe } from "fp-ts/lib/function";
-import { ClientConfig } from "pg";
-import { ValidationError } from "io-ts";
 import { log, info, error } from "fp-ts/lib/Console";
 import { EHCONFIG, PGCONFIG, plugin } from "./config/config";
 import { PostgreSQLConfig } from "./config/ioConfig";
@@ -20,7 +17,6 @@ import {
   subscribeToChanges,
 } from "./database/postgresql/PostgresLogicalPg";
 import {
-  PGClient,
   connectPGClient,
   createPGClient,
   disconnectPGClient,
@@ -30,6 +26,7 @@ import { query } from "./database/postgresql/PostgresPg";
 import { transform } from "./mapping/customMapper";
 import { Student } from "./model/student";
 import { QUERIES } from "./utilities/query";
+import { Deps, QueueDeps } from "./config/deps";
 
 dotenv.config();
 
@@ -39,7 +36,7 @@ const logRTE = {
   log: (msg: string) => () => RTE.fromIO(log(msg)),
 };
 
-const getPGConfig = (): E.Either<ValidationError[], ClientConfig> =>
+const getPGConfig = () =>
   pipe(
     PostgreSQLConfig.decode(PGCONFIG),
     E.map((config) => ({
@@ -51,10 +48,7 @@ const getPGConfig = (): E.Either<ValidationError[], ClientConfig> =>
     }))
   );
 
-const getEventHubProducer = (): E.Either<
-  Error,
-  KafkaProducerCompact<Student>
-> =>
+const getEventHubProducer = () =>
   pipe(
     AzureEventhubSasFromString.decode(EHCONFIG.CONNECTION_STRING),
     E.map((sas) => fromSas(sas)),
@@ -74,13 +68,8 @@ const setupDatabase = () =>
   );
 
 const dbChangesListener =
-  (): RTE.ReaderTaskEither<
-    { messagingClient: KafkaProducerCompact<Student> },
-    Error,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (...args: any[]) => Promise<void>
-  > =>
-  ({ messagingClient }) =>
+  () =>
+  ({ messagingClient }: QueueDeps) =>
     TE.of((messages: Student[]) =>
       pipe(
         transform(messages),
@@ -109,36 +98,23 @@ const subscribeToDBChanges = () =>
   );
 
 const waitForExit =
-  (): RTE.ReaderTaskEither<
-    {
-      dbClient: PGClient;
-      messagingClient: KafkaProducerCompact<Student>;
-    },
-    Error,
-    void
-  > =>
-  ({ dbClient, messagingClient }) =>
+  (): RTE.ReaderTaskEither<Deps, Error, void> =>
+  ({ pgClient, messagingClient }: Deps) =>
     pipe(
       process.stdin.resume(),
       void process.on("SIGINT", () => {
-        void cleanupAndExit({
-          pgClient: dbClient,
-          kafkaClient: messagingClient,
-        })();
+        cleanupAndExit({
+          pgClient,
+          messagingClient,
+        })().catch(error(`Error during the exit`));
       })
     );
 
 const disconnectKafkaProducer =
-  (): RTE.ReaderTaskEither<
-    {
-      kafkaClient: KafkaProducerCompact<Student>;
-    },
-    Error,
-    void
-  > =>
-  ({ kafkaClient }) =>
+  () =>
+  ({ messagingClient }: QueueDeps) =>
     pipe(
-      kafkaClient,
+      messagingClient,
       TE.fromIO,
       TE.chain((client) => disconnect(client.producer))
     );
