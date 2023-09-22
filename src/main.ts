@@ -5,12 +5,14 @@ import {
   fromSas,
   sendMessages,
 } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaProducerCompact";
-import { defaultLog, useWinston, withConsole } from "@pagopa/winston-ts";
 import dotenv from "dotenv";
 import * as E from "fp-ts/Either";
-import * as TE from "fp-ts/lib/TaskEither";
-import { pipe } from "fp-ts/lib/function";
-import { ClientConfig, QueryResult } from "pg";
+import * as TE from "fp-ts/TaskEither";
+import * as RTE from "fp-ts/lib/ReaderTaskEither";
+import { constVoid, pipe } from "fp-ts/lib/function";
+import { ClientConfig } from "pg";
+import { ValidationError } from "io-ts";
+import { log, info, error } from "fp-ts/lib/Console";
 import { EHCONFIG, PGCONFIG, plugin } from "./config/config";
 import { PostgreSQLConfig } from "./config/ioConfig";
 import {
@@ -30,9 +32,8 @@ import { Student } from "./model/student";
 import { QUERIES } from "./utilities/query";
 
 dotenv.config();
-useWinston(withConsole());
 
-const getPGConfig = (): E.Either<Error, ClientConfig> =>
+const getPGConfig = (): E.Either<ValidationError[], ClientConfig> =>
   pipe(
     PostgreSQLConfig.decode(PGCONFIG),
     E.map((config) => ({
@@ -41,15 +42,7 @@ const getPGConfig = (): E.Either<Error, ClientConfig> =>
       database: config.DATABASE,
       user: config.USER,
       password: config.PASSWORD,
-    })),
-    E.mapLeft((errors) =>
-      pipe(
-        defaultLog.taskEither.error(
-          `Error during decoding PG Config - ${errors}`
-        ),
-        () => new Error(`Error during decoding PG Config`)
-      )
-    )
+    }))
   );
 
 const getEventHubProducer = (): E.Either<
@@ -61,132 +54,146 @@ const getEventHubProducer = (): E.Either<
     E.map((sas) => fromSas(sas)),
     E.mapLeft((errors) =>
       pipe(
-        defaultLog.taskEither.error(`Error decoding Event Hub SAS - ${errors}`),
+        log(`Error decoding Event Hub SAS - ${errors}`),
         () => new Error(`Error decoding Event Hub SAS`)
       )
     )
   );
 
-const setupDatabase = (pgClient: PGClient): TE.TaskEither<Error, QueryResult> =>
+const setupDatabase = () =>
   pipe(
-    query(pgClient, QUERIES.CREATE_TABLE),
-    TE.chainFirst(() => query(pgClient, QUERIES.CREATE_PUBLICATION)),
-    TE.chainFirst(() =>
-      query(pgClient, QUERIES.CREATE_LOGICAL_REPLICATION_SLOT)
-    )
+    query(QUERIES.CREATE_TABLE),
+    RTE.chainFirst(() => query(QUERIES.CREATE_PUBLICATION)),
+    RTE.chainFirst(() => query(QUERIES.CREATE_LOGICAL_REPLICATION_SLOT))
   );
 
-const processDBChanges =
-  (client: KafkaProducerCompact<Student>) =>
-  (messages: Student[]): TE.TaskEither<Error, void> =>
-    pipe(
-      transform(messages),
-      sendMessages(client),
-      TE.map(() => void 0),
-      TE.mapLeft((errors) =>
-        pipe(
-          defaultLog.taskEither.error(
-            `Error during the message sending - ${errors
-              .map((error) => error.message)
-              .join(", ")}`
-          ),
-          () => new Error(`Error during the message sending`)
-        )
-      )
+const dbChangesListener =
+  (): RTE.ReaderTaskEither<
+    { messagingClient: KafkaProducerCompact<Student> },
+    Error,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (...args: any[]) => Promise<void>
+  > =>
+  ({ messagingClient }) =>
+    TE.of((messages: Student[]) =>
+      pipe(
+        transform(messages),
+        sendMessages(messagingClient),
+        TE.map(constVoid),
+        TE.mapLeft((errors) =>
+          pipe(
+            error(
+              `Error during the message sending - ${errors
+                .map((error) => error.message)
+                .join(", ")}`
+            ),
+            constVoid
+          )
+        ),
+        TE.toUnion
+      )()
     );
 
-const subscribeToDBChanges = (
-  dbClient: PGClient,
-  messagingClient: KafkaProducerCompact<Student>
-): TE.TaskEither<Error, void> =>
+const subscribeToDBChanges = () =>
   pipe(
-    onDataEvent(dbClient, processDBChanges(messagingClient)),
-    TE.chain(() => subscribeToChanges(dbClient, plugin, PGCONFIG.SLOT_NAME))
+    RTE.Do,
+    RTE.bindW("listener", dbChangesListener),
+    RTE.chainW(({ listener }) => onDataEvent(listener)),
+    RTE.chain(() => subscribeToChanges(plugin, PGCONFIG.SLOT_NAME))
   );
 
-const waitForExit = (
-  dbClient: PGClient,
-  messagingClient: KafkaProducerCompact<Student>
-): TE.TaskEither<Error, void> =>
-  pipe(
-    process.stdin.resume(),
-    void process.on("SIGINT", () => {
-      void cleanupAndExit({
-        pgClient: dbClient,
-        kafkaClient: messagingClient,
-      })();
-    })
-  );
+const waitForExit =
+  (): RTE.ReaderTaskEither<
+    {
+      dbClient: PGClient;
+      messagingClient: KafkaProducerCompact<Student>;
+    },
+    Error,
+    void
+  > =>
+  ({ dbClient, messagingClient }) =>
+    pipe(
+      process.stdin.resume(),
+      void process.on("SIGINT", () => {
+        void cleanupAndExit({
+          pgClient: dbClient,
+          kafkaClient: messagingClient,
+        })();
+      })
+    );
 
-const cleanupAndExit = (clients: {
-  pgClient: PGClient;
-  kafkaClient: KafkaProducerCompact<Student>;
-}): TE.TaskEither<Error, void> =>
-  pipe(
-    disconnectPGLogicalClient(clients.pgClient),
-    TE.chain(() => query(clients.pgClient, QUERIES.DROP_PUBLICATION)),
-    TE.chain(() =>
-      query(clients.pgClient, QUERIES.DROP_LOGICAL_REPLICATION_SLOT)
-    ),
-    TE.chain(() => disconnectPGClient(clients.pgClient)),
-    TE.chain(() =>
-      pipe(
-        clients.kafkaClient,
-        TE.fromIO,
-        TE.bindTo("client"),
-        TE.chainFirst(({ client }) => disconnect(client.producer))
-      )
-    ),
-    TE.map(() => {
-      pipe(
-        defaultLog.taskEither.info(
-          "Disconnected from Database and Message Bus"
-        ),
-        process.exit(0)
-      );
-    }),
-    TE.mapLeft((error) => {
-      defaultLog.taskEither.error(`Error during the exit - ${error}`);
-      process.exit(1);
-    })
-  );
+const disconnectKafkaProducer =
+  (): RTE.ReaderTaskEither<
+    {
+      kafkaClient: KafkaProducerCompact<Student>;
+    },
+    Error,
+    void
+  > =>
+  ({ kafkaClient }) =>
+    pipe(
+      kafkaClient,
+      TE.fromIO,
+      TE.chain((client) => disconnect(client.producer))
+    );
 
-const exitFromProcess = (): TE.TaskEither<Error, void | object> =>
-  pipe(defaultLog.taskEither.error("Application failed"), process.exit(1));
+const cleanupAndExit = pipe(
+  disconnectPGLogicalClient(),
+  RTE.chainFirst(() => query(QUERIES.DROP_PUBLICATION)),
+  RTE.chainFirst(() => query(QUERIES.DROP_LOGICAL_REPLICATION_SLOT)),
+  RTE.chainFirst(disconnectPGClient),
+  RTE.chainFirstW(disconnectKafkaProducer),
+  RTE.chainFirst(() => {
+    info("Disconnected from Database and Message Bus");
+    process.exit(0);
+  }),
+  RTE.mapLeft((e) => {
+    error(`Error during the exit - ${e}`);
+    process.exit(1);
+  })
+);
 
-const main = () =>
-  pipe(
-    TE.Do,
-    defaultLog.taskEither.info(
-      "Trying to connect to the event hub instance..."
-    ),
-    TE.bind("messagingClient", () => TE.fromEither(getEventHubProducer())),
-    defaultLog.taskEither.info("Connected to the event hub instance"),
-    defaultLog.taskEither.info("Creating PostgreSQl client..."),
-    TE.bind("dbClient", () =>
-      pipe(
-        getPGConfig(),
-        TE.fromEither,
-        TE.chain((config) => createPGClient(config))
-      )
-    ),
-    defaultLog.taskEither.info("Client created"),
-    defaultLog.taskEither.info("Connecting to PostgreSQL..."),
-    TE.chainFirst(({ dbClient }) => connectPGClient(dbClient)),
-    defaultLog.taskEither.info("Connected to PostgreSQL"),
-    defaultLog.taskEither.info("Initializing database..."),
-    TE.chainFirst(({ dbClient }) => setupDatabase(dbClient)),
-    defaultLog.taskEither.info("Database initialized"),
-    defaultLog.taskEither.info("Subscribing to DB Changes..."),
-    TE.chainFirst(({ messagingClient, dbClient }) =>
-      subscribeToDBChanges(dbClient, messagingClient)
-    ),
-    defaultLog.taskEither.info("Subscribed to DB Changes"),
-    defaultLog.taskEither.info(`Press CTRL+C to exit...Waiting...`),
-    TE.chain(({ messagingClient, dbClient }) =>
-      waitForExit(dbClient, messagingClient)
+// const exitFromProcess = (): TE.TaskEither<Error, void | object> =>
+//   pipe(defaultLog.taskEither.error("Application failed"), process.exit(1));
+
+const main = pipe(
+  RTE.Do,
+  // info(
+  //   "Trying to connect to the event hub instance..."
+  // ),
+  RTE.bind("messagingClient", () => RTE.fromEither(getEventHubProducer())),
+  // info("Connected to the event hub instance"),
+  // info("Creating PostgreSQl client..."),
+  RTE.bind("pgClient", createPGClient),
+  RTE.map(
+    pipe(
+      RTE.fromIO(info("Client created")),
+      // RTE.fromIO(info("Connecting to PostgreSQL...")),
+      RTE.chainFirstW(connectPGClient),
+      RTE.fromIO(info("Connected to PostgreSQL")),
+      // info("Initializing database..."),
+      RTE.chainFirstW(setupDatabase),
+      // info("Database initialized"),
+      // info("Subscribing to DB Changes..."),
+      RTE.chainFirstW(subscribeToDBChanges),
+      // info("Subscribed to DB Changes"),
+      // info(`Press CTRL+C to exit...Waiting...`),
+      RTE.chainFirstW(waitForExit)
     )
-  )();
-TE.orElse(exitFromProcess);
+  )
+);
 
-main().catch(defaultLog.taskEither.error(`Application Error`));
+void pipe(
+  getPGConfig(),
+  E.foldW(
+    (errors) =>
+      pipe(
+        error(`Error during decoding PG Config - ${errors}`),
+        () => new Error(`Error during decoding PG Config`)
+      ),
+    (pgClientConfig) =>
+      main({
+        pgClientConfig,
+      })().catch(error(`Application Error`))
+  )
+);
