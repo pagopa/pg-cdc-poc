@@ -5,6 +5,7 @@ import * as RTE from "fp-ts/ReaderTaskEither";
 import { pipe } from "fp-ts/lib/function";
 import { Client, ClientConfig } from "pg";
 import { LogicalReplicationService } from "pg-logical-replication";
+import { DatabaseDeps } from "../../config/deps";
 
 useWinston(withConsole());
 
@@ -14,8 +15,8 @@ export type PGClient = {
 };
 
 export const createPGClient =
-  (): RTE.ReaderTaskEither<{ pgClientConfig: ClientConfig }, Error, PGClient> =>
-  ({ pgClientConfig }) =>
+  () =>
+  ({ pgClientConfig }: { pgClientConfig: ClientConfig }) =>
     TE.tryCatch(
       async () => ({
         pgClient: new Client(pgClientConfig),
@@ -25,8 +26,8 @@ export const createPGClient =
     );
 
 export const connectPGClient =
-  (): RTE.ReaderTaskEither<{ pgClient: PGClient }, Error, void> =>
-  ({ pgClient }) =>
+  () =>
+  ({ pgClient }: DatabaseDeps) =>
     TE.tryCatch(
       async () => await pgClient.pgClient.connect(),
       (error) =>
@@ -37,16 +38,16 @@ export const connectPGClient =
     );
 
 export const disconnectPGClient =
-  (): RTE.ReaderTaskEither<{ pgClient: PGClient }, Error, void> =>
-  ({ pgClient }) =>
+  () =>
+  ({ pgClient }: DatabaseDeps) =>
     TE.tryCatch(
       async () => await pgClient.pgClient.end(),
       (error) => new Error(`Error disconnecting from PG - ${error}`)
     );
 
 export const disconnectPGLogicalClient =
-  (): RTE.ReaderTaskEither<{ pgClient: PGClient }, Error, void> =>
-  ({ pgClient }) =>
+  () =>
+  ({ pgClient }: DatabaseDeps) =>
     TE.tryCatch(
       async () => void (await pgClient.pgLogicalClient.stop()),
       (error) => new Error(`Error disconnecting from PG - ${error}`)

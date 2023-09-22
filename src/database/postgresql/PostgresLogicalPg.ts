@@ -1,10 +1,9 @@
 import * as E from "fp-ts/Either";
 import * as TE from "fp-ts/TaskEither";
-import * as RTE from "fp-ts/ReaderTaskEither";
 import { pipe } from "fp-ts/lib/function";
 import { Wal2Json } from "pg-logical-replication";
 import { AbstractPlugin } from "pg-logical-replication/dist/output-plugins/abstract.plugin";
-import { PGClient } from "./PostgresOperation";
+import { DatabaseDeps } from "../../config/deps";
 
 export type PgEvents = "start" | "data" | "error" | "acknowledge" | "heartbeat";
 
@@ -12,8 +11,8 @@ export const onDataEvent =
   (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     listener: (...args: any[]) => Promise<void>
-  ): RTE.ReaderTaskEither<{ pgClient: PGClient }, Error, void> =>
-  ({ pgClient }) =>
+  ) =>
+  ({ pgClient }: DatabaseDeps) =>
     pipe(
       TE.rightIO(() => {
         pgClient.pgLogicalClient.on(
@@ -28,11 +27,8 @@ export const onDataEvent =
     );
 
 export const subscribeToChanges =
-  (
-    plugin: AbstractPlugin,
-    slotName: string
-  ): RTE.ReaderTaskEither<{ pgClient: PGClient }, Error, void> =>
-  ({ pgClient }) =>
+  (plugin: AbstractPlugin, slotName: string) =>
+  ({ pgClient }: DatabaseDeps) =>
     pipe(
       TE.tryCatch(
         () =>
