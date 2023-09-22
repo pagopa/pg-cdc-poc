@@ -33,6 +33,12 @@ import { QUERIES } from "./utilities/query";
 
 dotenv.config();
 
+const logRTE = {
+  info: (msg: string) => () => RTE.fromIO(info(msg)),
+  error: (msg: string) => () => RTE.fromIO(error(msg)),
+  log: (msg: string) => () => RTE.fromIO(log(msg)),
+};
+
 const getPGConfig = (): E.Either<ValidationError[], ClientConfig> =>
   pipe(
     PostgreSQLConfig.decode(PGCONFIG),
@@ -158,42 +164,45 @@ const cleanupAndExit = pipe(
 
 const main = pipe(
   RTE.Do,
-  // info(
-  //   "Trying to connect to the event hub instance..."
-  // ),
+  RTE.chainFirstW(
+    logRTE.info("Trying to connect to the event hub instance...")
+  ),
   RTE.bind("messagingClient", () => RTE.fromEither(getEventHubProducer())),
-  // info("Connected to the event hub instance"),
-  // info("Creating PostgreSQl client..."),
+  RTE.chainFirstW(logRTE.info("Connected to the event hub instance")),
+  RTE.chainFirstW(logRTE.info("Creating PostgreSQl client...")),
   RTE.bind("pgClient", createPGClient),
   RTE.map(
     pipe(
-      RTE.fromIO(info("Client created")),
-      // RTE.fromIO(info("Connecting to PostgreSQL...")),
+      RTE.of(logRTE.info("Client created")),
+      RTE.chainFirstW(logRTE.info("Connecting to PostgreSQL...")),
       RTE.chainFirstW(connectPGClient),
-      RTE.fromIO(info("Connected to PostgreSQL")),
-      // info("Initializing database..."),
+      RTE.chainFirstW(logRTE.info("Connected to PostgreSQL")),
+      RTE.chainFirstW(logRTE.info("Initializing database...")),
       RTE.chainFirstW(setupDatabase),
-      // info("Database initialized"),
-      // info("Subscribing to DB Changes..."),
+      RTE.chainFirstW(logRTE.info("Database initialized")),
+      RTE.chainFirstW(logRTE.info("Subscribing to DB Changes...")),
       RTE.chainFirstW(subscribeToDBChanges),
-      // info("Subscribed to DB Changes"),
-      // info(`Press CTRL+C to exit...Waiting...`),
+      RTE.chainFirstW(logRTE.info("Subscribed to DB Changes")),
+      RTE.chainFirstW(logRTE.info(`Press CTRL+C to exit...Waiting...`)),
       RTE.chainFirstW(waitForExit)
     )
   )
 );
 
-void pipe(
-  getPGConfig(),
-  E.foldW(
-    (errors) =>
-      pipe(
-        error(`Error during decoding PG Config - ${errors}`),
-        () => new Error(`Error during decoding PG Config`)
-      ),
-    (pgClientConfig) =>
-      main({
-        pgClientConfig,
-      })().catch(error(`Application Error`))
-  )
-);
+const run = () =>
+  pipe(
+    getPGConfig(),
+    E.foldW(
+      (errors) =>
+        pipe(
+          error(`Error during decoding PG Config - ${errors}`),
+          () => new Error(`Error during decoding PG Config`)
+        ),
+      (pgClientConfig) =>
+        main({
+          pgClientConfig,
+        })().catch(error(`Application Error`))
+    )
+  );
+
+void run();
