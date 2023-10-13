@@ -2,10 +2,12 @@
 import * as A from "fp-ts/lib/Array";
 import * as O from "fp-ts/lib/Option";
 
+import { useWinston, withConsole } from "@pagopa/winston-ts";
 import { pipe } from "fp-ts/lib/function";
 import { Student } from "../model/student";
 
 type Transformer = (data: any) => Student[];
+useWinston(withConsole());
 
 const isValidTag = (tag: string) =>
   tag !== "commit" && tag !== "relation" && tag !== "begin";
@@ -17,11 +19,7 @@ const tagTransformer: Transformer = (data) =>
     O.chain(() => O.fromNullable(data.new)),
     O.fold(
       () => [],
-      (newObject) => {
-        // eslint-disable-next-line no-console
-        console.log("newObject", newObject);
-        return A.of(newObject as Student);
-      }
+      (newObject) => A.of(newObject as Student)
     )
   );
 

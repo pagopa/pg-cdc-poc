@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { disconnect } from "@pagopa/fp-ts-kafkajs/dist/lib/KafkaOperation";
 import {
   AzureEventhubSasFromString,
@@ -10,7 +11,7 @@ import dotenv from "dotenv";
 import * as E from "fp-ts/Either";
 import * as TE from "fp-ts/lib/TaskEither";
 import { pipe } from "fp-ts/lib/function";
-import { ClientConfig, QueryResult } from "pg";
+import { ClientConfig } from "pg";
 import { EHCONFIG, PGCONFIG, plugin } from "./config/config";
 import { PostgreSQLConfig } from "./config/ioConfig";
 import {
@@ -24,10 +25,8 @@ import {
   disconnectPGClient,
   disconnectPGLogicalClient,
 } from "./database/postgresql/PostgresOperation";
-import { query } from "./database/postgresql/PostgresPg";
 import { transform } from "./mapping/customMapper";
 import { Student } from "./model/student";
-import { QUERIES } from "./utilities/query";
 
 dotenv.config();
 useWinston(withConsole());
@@ -67,28 +66,23 @@ const getEventHubProducer = (): E.Either<
     )
   );
 
-const setupDatabase = (pgClient: PGClient): TE.TaskEither<Error, QueryResult> =>
-  pipe(
-    query(pgClient, QUERIES.CREATE_TABLE),
-    TE.chainFirst(() => query(pgClient, QUERIES.CREATE_PUBLICATION)),
-    TE.chainFirst(() =>
-      query(pgClient, QUERIES.CREATE_LOGICAL_REPLICATION_SLOT)
-    )
-  );
-
 const processDBChanges =
   (client: KafkaProducerCompact<Student>) =>
-  (messages: Student[]): TE.TaskEither<Error, void> =>
+  (lsn: string, messages: Student[]): TE.TaskEither<Error, void> =>
     pipe(
       transform(messages),
       sendMessages(client),
+      // TE.chain(() => void ack(pgClient, lsn)()),
+      // defaultLog.taskEither.info(
+      //   `lsn ${lsn} - messages ${JSON.stringify(messages, (key, value) =>
+      //     typeof value === "bigint" ? value.toString() : value
+      //   )} - pgClient ${pgClient}`
+      // ),
       TE.map(() => void 0),
-      TE.mapLeft((errors) =>
+      TE.mapLeft((error) =>
         pipe(
           defaultLog.taskEither.error(
-            `Error during the message sending - ${errors
-              .map((error) => error.message)
-              .join(", ")}`
+            `Error during the message sending - ${error}`
           ),
           () => new Error(`Error during the message sending`)
         )
@@ -124,10 +118,6 @@ const cleanupAndExit = (clients: {
 }): TE.TaskEither<Error, void> =>
   pipe(
     disconnectPGLogicalClient(clients.pgClient),
-    TE.chain(() => query(clients.pgClient, QUERIES.DROP_PUBLICATION)),
-    TE.chain(() =>
-      query(clients.pgClient, QUERIES.DROP_LOGICAL_REPLICATION_SLOT)
-    ),
     TE.chain(() => disconnectPGClient(clients.pgClient)),
     TE.chain(() =>
       pipe(
@@ -151,9 +141,6 @@ const cleanupAndExit = (clients: {
     })
   );
 
-const exitFromProcess = (): TE.TaskEither<Error, void | object> =>
-  pipe(defaultLog.taskEither.error("Application failed"), process.exit(1));
-
 const main = () =>
   pipe(
     TE.Do,
@@ -174,9 +161,22 @@ const main = () =>
     defaultLog.taskEither.info("Connecting to PostgreSQL..."),
     TE.chainFirst(({ dbClient }) => connectPGClient(dbClient)),
     defaultLog.taskEither.info("Connected to PostgreSQL"),
-    defaultLog.taskEither.info("Initializing database..."),
-    TE.chainFirst(({ dbClient }) => setupDatabase(dbClient)),
-    defaultLog.taskEither.info("Database initialized"),
+    // defaultLog.taskEither.info("Starting import of the existing table..."),
+    // TE.chainFirst(({ messagingClient }) =>
+    //   pipe(
+    //     getPGConfig(),
+    //     TE.fromEither,
+    //     defaultLog.taskEither.info("Config improted"),
+    //     TE.chain((config) => queryStream(config)),
+    //     TE.chain((messages) => sendMessages(messagingClient)(messages)),
+    //     TE.fold(
+    //       () => TE.of(void 0),
+    //       (error) => pipe(defaultLog.taskEither.error("Error"), TE.of(error))
+    //     ),
+    //     defaultLog.taskEither.info("Import ended")
+    //   )
+    // ),
+    // defaultLog.taskEither.info("Database imported"),
     defaultLog.taskEither.info("Subscribing to DB Changes..."),
     TE.chainFirst(({ messagingClient, dbClient }) =>
       subscribeToDBChanges(dbClient, messagingClient)
@@ -187,6 +187,5 @@ const main = () =>
       waitForExit(dbClient, messagingClient)
     )
   )();
-TE.orElse(exitFromProcess);
 
-main().catch(defaultLog.taskEither.error(`Application Error`));
+main().catch(defaultLog.either.error(`Application Error`));

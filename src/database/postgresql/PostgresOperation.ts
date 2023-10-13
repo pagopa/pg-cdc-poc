@@ -1,9 +1,13 @@
 /* eslint-disable no-console */
+
 import { defaultLog, useWinston, withConsole } from "@pagopa/winston-ts";
 import * as TE from "fp-ts/TaskEither";
 import { pipe } from "fp-ts/lib/function";
-import { Client, ClientConfig } from "pg";
+import { Client, ClientConfig, Pool } from "pg";
+import { QueryIterablePool } from "pg-iterator";
 import { LogicalReplicationService } from "pg-logical-replication";
+import { Student } from "../../model/student";
+
 useWinston(withConsole());
 
 export type PGClient = {
@@ -17,13 +21,14 @@ export const createPGClient = (
   TE.tryCatch(
     async () => ({
       pgClient: new Client(config),
-      pgLogicalClient: new LogicalReplicationService(config),
+      pgLogicalClient: new LogicalReplicationService(config, {
+        acknowledge: {
+          auto: true,
+          timeoutSeconds: 10,
+        },
+      }),
     }),
-    (error) =>
-      pipe(
-        defaultLog.taskEither.error(`Error creating PG clients - ${error}`),
-        () => new Error(`Error creating PG clients - ${error}`)
-      )
+    (error) => new Error(`Error creating PG clients - ${error}`)
   );
 
 export const connectPGClient = (client: PGClient): TE.TaskEither<Error, void> =>
@@ -59,4 +64,23 @@ export const disconnectPGClientWithoutError = (
     client,
     disconnectPGClient,
     TE.orElseW((_) => TE.right(undefined))
+  );
+
+export const queryStream = (
+  config: ClientConfig
+): TE.TaskEither<Error, Student[]> =>
+  TE.tryCatch(
+    async () => {
+      const pool = new Pool(config);
+      const client = new QueryIterablePool(pool);
+      const stream = client.query("SELECT * FROM students");
+      const students: Student[] = [];
+
+      for await (const row of stream) {
+        // eslint-disable-next-line functional/immutable-data
+        students.push(row as Student);
+      }
+      return students;
+    },
+    (error) => new Error(`Error executing query - ${error}`)
   );

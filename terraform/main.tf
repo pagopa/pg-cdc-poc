@@ -12,6 +12,10 @@ variable "location" {
   default     = "West Europe"
 }
 
+variable "db_password" {
+  description = "Database password"
+}
+
 resource "azurerm_resource_group" "pg-cdc-poc" {
   name     = var.resource_group_name
   location = var.location
@@ -28,7 +32,7 @@ resource "azurerm_postgresql_flexible_server" "pg-cdc-poc" {
   backup_retention_days        = 7
   geo_redundant_backup_enabled = false
   administrator_login          = "psqladminun"
-  // administrator_password       = "<YOUR_PASS>" -> UPDATE WITH A VALID PASSWORD
+  administrator_password       = var.db_password
 
 
   version = "13"
@@ -90,6 +94,15 @@ resource "azurerm_eventhub_authorization_rule" "eventhub-ar-pg-cdc-poc" {
 resource "null_resource" "alter_user" {
   depends_on = [azurerm_postgresql_flexible_server_database.default]
   provisioner "local-exec" {
-    command = "./alterUser.sh ${azurerm_postgresql_flexible_server.pg-cdc-poc.fqdn} psqladminun ${azurerm_postgresql_flexible_server_database.default.name} H@Sh1CoR3!"
+    command = "./alter_user.sh ${azurerm_postgresql_flexible_server.pg-cdc-poc.fqdn} psqladminun ${azurerm_postgresql_flexible_server_database.default.name} ${var.db_password}"
+  }
+}
+
+resource "null_resource" "setup_database" {
+  depends_on = [azurerm_postgresql_flexible_server_database.default]
+
+  provisioner "local-exec" {
+    command     = "export PGPASSWORD=${var.db_password} && psql -h ${azurerm_postgresql_flexible_server.pg-cdc-poc.fqdn} -U psqladminun -d ${azurerm_postgresql_flexible_server_database.default.name} -f setup_database.sql"
+    working_dir = path.module
   }
 }
